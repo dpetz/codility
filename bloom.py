@@ -4,6 +4,7 @@ import string
 import unittest
 import hashlib
 import numpy as np
+import math
 
 def count_exact(strs):
     return len(set(strs))
@@ -14,59 +15,63 @@ def randomString(stringLength=10):
     letters = string.ascii_lowercase
     return ''.join(random.choice(letters) for i in range(stringLength))
 
-class Hash:
+class HashAlgo:
 
     def __init__(self, bits, version=0):
         self.bits = bits
         self.version = version
-        if bits == 256:
-            self.hash_func = hashlib.sha256
-        elif bits == 128:
+        if bits == 128:
             self.hash_func = hashlib.md5
+        elif bits == 256:
+            self.hash_func = hashlib.sha256
+        elif bits == 512:
+            self.hash_func = hashlib.sha512
         else:
             raise ValueError(f'No hash function for {bits} bits. Use 128 or 256 instead.')
 
-    def hash(self,s):
+    def hash(self, s):
         """Hashes string to int """
 
         # add single letter to modify for version
         versioned = s + str(self.version)
-        return int(self.hash_func(versioned.encode('utf-8')).hexdigest(),16)
+        hex_digits_needed = math.log2(self.bits) / 8
+        return int(self.hash_func(versioned.encode('utf-8')).hexdigest()[:hex_digits_needed], 16)
 
 
-class Bloom:
+class BloomFilter:
     """https://en.wikipedia.org/wiki/Bloom_filter"""
-    def __init__(self,m,k):
+
+    def __init__(self, m, k):
         """n -- number of bits
            k -- number of hash functions """
         self.m = m
         self.k = k
-        self.hash_funcs = [Hash(m,i) for i in range(k)]
-        self.bits = 0
+        self.hash_funcs = [HashAlgo(m, i) for i in range(k)]
+        self.bit_mask = 0
 
     def add(self, elem):
         # https://wiki.python.org/moin/BitwiseOperators
         for h in self.hash_funcs:
             hashed = h.hash(elem)
-            self.bits = self.bits | hashed
-        print(f'Added: {hashed}')
+            self.bit_mask = self.bit_mask | hashed
+            print(f'Added: {hashed}')
 
     def contains(self,elem):
         for h in self.hash_funcs:
             hashed = h.hash(elem)
-            if self.bits & hashed != hashed:
+            if self.bit_mask & hashed != hashed:
                 return False
         return True
 
     def fill_rate(self):
-        return 1.0 * bin(self.bits).count("1") / self.m
+        return 1.0 * bin(self.bit_mask).count("1") / self.m
 
 
 class TestBloom(unittest.TestCase):
 
     def test_add_and_retrieve_many(self):
         strings = [randomString(5) for i in range(10)]
-        bloom = Bloom(128, 1)
+        bloom = BloomFilter(128, 1)
 
         strings_approx = 0
         for s in strings:
@@ -82,8 +87,8 @@ class TestBloom(unittest.TestCase):
 
 
     def test_add_and_retrieve_single(self):
-        bloom = Bloom(256, 1)
-        hash = Hash(256)
+        bloom = BloomFilter(256, 1)
+        hash = HashAlgo(256)
         s = randomString(5)
         hashed = hash.hash(s)
         print(f'{s} hashed into: {hashed}')
