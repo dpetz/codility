@@ -10,32 +10,22 @@ def count_exact(strs):
     return len(set(strs))
 
 
-def randomString(stringLength=10):
+def random_string(stringLength=10, letters=string.ascii_lowercase):
     """Generate a random string of fixed length """
-    letters = string.ascii_lowercase
     return ''.join(random.choice(letters) for i in range(stringLength))
 
-class HashAlgo:
+class HashToInts:
 
-    def __init__(self, bits, version=0):
-        self.bits = bits
-        self.version = version
-        if bits == 128:
-            self.hash_func = hashlib.md5
-        elif bits == 256:
-            self.hash_func = hashlib.sha256
-        elif bits == 512:
-            self.hash_func = hashlib.sha512
-        else:
-            raise ValueError(f'No hash function for {bits} bits. Use 128 or 256 instead.')
+    def __init__(self, range=256, variants=64):
+        """Hashes strings to `variants` many integers between 0 and `range`-1"""
 
-    def hash(self, s):
-        """Hashes string to int """
+        assert range == 256
+        assert variants == 64
 
-        # add single letter to modify for version
-        versioned = s + str(self.version)
-        hex_digits_needed = math.log2(self.bits) / 8
-        return int(self.hash_func(versioned.encode('utf-8')).hexdigest()[:hex_digits_needed], 16)
+    def hash_to_ints(self, s):
+        """Hashes string to ints """
+        return [int(b) for b in hashlib.sha512(s.encode('utf-8')).digest()]
+
 
 
 class BloomFilter:
@@ -46,64 +36,68 @@ class BloomFilter:
            k -- number of hash functions """
         self.m = m
         self.k = k
-        self.hash_funcs = [HashAlgo(m, i) for i in range(k)]
+        self.hash_algo = HashToInts(m, k)
         self.bit_mask = 0
 
-    def add(self, elem):
+    def add(self, str):
         # https://wiki.python.org/moin/BitwiseOperators
-        for h in self.hash_funcs:
-            hashed = h.hash(elem)
-            self.bit_mask = self.bit_mask | hashed
-            print(f'Added: {hashed}')
+        hashes = self.hash_algo.hash_to_ints(str)
+        for h in hashes:
+            self.bit_mask = self.bit_mask | (2 ** h)
+        print(f"For '{str}' adding {len(hashes)} hashes (eg. {hashes[:5]}). Updated bit mask: {bin(self.bit_mask)[2:]}")
 
-    def contains(self,elem):
-        for h in self.hash_funcs:
-            hashed = h.hash(elem)
-            if self.bit_mask & hashed != hashed:
+    def contains(self, str):
+        for h in self.hash_algo.hash_to_ints(str):
+            if self.bit_mask & (2 ** h) != 2 ** h:
                 return False
         return True
 
     def fill_rate(self):
-        return 1.0 * bin(self.bit_mask).count("1") / self.m
+        return (1.0 * bin(self.bit_mask).count("1")) / self.m
 
 
 class TestBloom(unittest.TestCase):
 
+    def test_hash_range_and_values(self):
+        hashes = HashToInts(256, 64).hash_to_ints(random_string(100))
+        assert len(hashes) == 64
+        for h in hashes:
+            assert isinstance(h, int)
+            assert 0 <= h < 256
+
     def test_add_and_retrieve_many(self):
-        strings = [randomString(5) for i in range(10)]
-        bloom = BloomFilter(128, 1)
+        strings = [random_string(5) for i in range(100)]
+        print(f'Counting unique strings in: {strings} ')
+        bloom = BloomFilter(256, 64)
 
         strings_approx = 0
         for s in strings:
-            strings_approx += not bloom.contains(s)
-            bloom.add(s)
+            if not bloom.contains(s):
+                strings_approx += 1
+                bloom.add(s)
             print(bloom.fill_rate())
 
         strings_exact = count_exact(strings)
 
-        print(f'For {strings_exact} unique strings of {len(strings)} approximated: {strings_approx}')
+        print(f'{strings_exact} unique strings in {len(strings)}. Approximated: {strings_approx}')
 
         assert 0 < strings_approx <= strings_exact
 
 
     def test_add_and_retrieve_single(self):
-        bloom = BloomFilter(256, 1)
-        hash = HashAlgo(256)
-        s = randomString(5)
-        hashed = hash.hash(s)
-        print(f'{s} hashed into: {hashed}')
-
+        bloom = BloomFilter(256, 64)
+        s = random_string(5)
         assert not bloom.contains(s)
         bloom.add(s)
         assert bloom.contains(s)
 
     def test_unit_random(self):
-        rs = randomString(5)
+        rs = random_string(5)
         print("Random string length 5: " + rs)
         assert len(rs) == 5
 
     def test_random(self):
-        strings = [ randomString(5) for i in range(1000000)]
+        strings = [ random_string(5) for i in range(1000000)]
         n = count_exact(strings)
         print(f"Number of unqiue strings: {n}")
 
