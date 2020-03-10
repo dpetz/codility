@@ -20,11 +20,14 @@ class HashToInts:
         """Hashes strings to `variants` many integers between 0 and `range`-1"""
 
         assert range == 256
-        assert variants == 64
+        assert variants <= 64
+
+        self.range = range
+        self.variants = variants
 
     def hash_to_ints(self, s):
         """Hashes string to ints """
-        return [int(b) for b in hashlib.sha512(s.encode('utf-8')).digest()]
+        return [int(b) for b in hashlib.sha512(s.encode('utf-8')).digest()[0:self.variants]]
 
 
 
@@ -44,7 +47,7 @@ class BloomFilter:
         hashes = self.hash_algo.hash_to_ints(str)
         for h in hashes:
             self.bit_mask = self.bit_mask | (2 ** h)
-        print(f"For '{str}' adding {len(hashes)} hashes (eg. {hashes[:5]}). Updated bit mask: {bin(self.bit_mask)[2:]}")
+        print(f"For '{str}' adding {len(hashes)} hashes (eg. {hashes[:5]}). Updated bit mask: {bin(self.bit_mask)[2:22]}...")
 
     def contains(self, str):
         for h in self.hash_algo.hash_to_ints(str):
@@ -58,17 +61,17 @@ class BloomFilter:
 
 class TestBloom(unittest.TestCase):
 
-    def test_hash_range_and_values(self):
+    def test_hashes(self):
         hashes = HashToInts(256, 64).hash_to_ints(random_string(100))
         assert len(hashes) == 64
         for h in hashes:
             assert isinstance(h, int)
             assert 0 <= h < 256
 
-    def test_add_and_retrieve_many(self):
+    def test_filter_many(self):
         strings = [random_string(5) for i in range(100)]
         print(f'Counting unique strings in: {strings} ')
-        bloom = BloomFilter(256, 64)
+        bloom = BloomFilter(256, 5)
 
         strings_approx = 0
         for s in strings:
@@ -84,7 +87,7 @@ class TestBloom(unittest.TestCase):
         assert 0 < strings_approx <= strings_exact
 
 
-    def test_add_and_retrieve_single(self):
+    def test_filter_single(self):
         bloom = BloomFilter(256, 64)
         s = random_string(5)
         assert not bloom.contains(s)
