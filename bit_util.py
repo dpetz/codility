@@ -5,7 +5,7 @@ def is_power_of_2(n):
 
 def next_power_of_2(x):
     """ https://stackoverflow.com/questions/14267555/find-the-smallest-power-of-2-greater-than-n-in-python """
-    return 1 if x == 0 else 2**(x - 1).bit_length()
+    return 1 if x == 0 else int(2**(x - 1)).bit_length()
 
 
 def inspect_bytes(btes):

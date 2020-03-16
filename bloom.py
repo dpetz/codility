@@ -32,9 +32,10 @@ class Hasher:
         assert k * n <= self.size, \
             f"{self.size} bit hash function {alg} cannot create {n} times {k} bits"
 
-    def bits(self, s):
+    def bits(self, word):
         """ Hash string to byte array and return as integer """
-        return int.from_bytes(self.alg(s.encode('utf-8')).digest(), byteorder='big', signed=False)
+        self.alg.update(word.encode('utf-8'))
+        return int.from_bytes(self.alg.digest(), byteorder='big', signed=False)
 
     def ints(self, word):
         """Hashes string and slices results into bit fields returned as list of integers. """
@@ -53,7 +54,7 @@ class Filter:
     @staticmethod
     def create_n(m, n):
         """ Create BloomFilter with good number of hash functions for m bits and n insertions """
-        k = ceil(log(2) * m / n)
+        k = int(ceil(log(2) * m / n))
         return Filter(m, k)
 
     @staticmethod
@@ -62,8 +63,10 @@ class Filter:
         m = -int(ceil(log(epsilon) * n) / (log(2) ** 2))
         return Filter.create_n(m, n)
 
-    def __init__(self, m, k):
+    def __init__(self, m: int, k: int):
         """New filter with m bits and k hash functions """
+        assert isinstance(k, int), k
+        assert isinstance(m, int), m
         self.hasher = Hasher(int(log2(next_power_of_2(m))), k)
         self.bits, self.m, self.k = 0, m, k
 
@@ -124,13 +127,13 @@ class TestHashes(TestCase):
 
 class TestBloom(TestCase):
 
-    def test_create_fp(self, m=958505, n=100000, k=7):
+    def test_create_n(self, m=958505, n=100000, k=7):
         print(f"bits={m}, inserts={n} --> hashes={k}")
-        assert Filter.create_fp(m,n) == k
+        assert Filter.create_n(m, n).k == k
 
-    def test_create_n(self, fp=0.01, n=100000, m=958505):
+    def test_create_fp(self, fp=0.01, n=100000, m=958505):
         print(f"epsilon={fp}, inserts={n} --> bits={m}")
-        assert Filter.create_n(fp, n).m == m
+        assert Filter.create_fp(fp, n).m == m
 
     def test_add(self, poet=Poet(5)):
         bloom = Filter(8, 64)
@@ -159,6 +162,7 @@ class TestBloom(TestCase):
 
         # test_approx(self, n=100000, poet=Poet(5), false_positive_rate=.1)
         # Bloom({'m': 479251, 'k': 4, '%': 58.16}) approximates 104400 of 99574 words unique (4.85% error).
+
 
 class TestPoet(TestCase):
 
