@@ -1,178 +1,175 @@
-
-import random
+from random import choice
 import string
-import unittest
-import hashlib
-import math
+from unittest import TestCase
+from dataclasses import dataclass
+from hashlib import sha512
+from math import log, ceil, log2
+from bit_util import next_power_of_2
 
 
-def count_exact(strs):
-    return len(set(strs))
+@dataclass
+class Poet:
+    """ Generate words by sampling [size] many [letters]. """
 
+    size: int = 10
+    letters: str = string.ascii_lowercase
 
-def random_string(stringLength=10, letters=string.ascii_lowercase):
-    """Generate a random string of fixed length """
-    return ''.join(random.choice(letters) for i in range(stringLength))
+    def word(self):
+        """Generate single word. """
+        return ''.join(choice(self.letters) for i in range(self.size))
 
-
-def is_power_of_2(n):
-    # https://stackoverflow.com/questions/57025836/check-if-a-given-number-is-power-of-two-in-python
-    return (n & (n-1) == 0) and n != 0
-
-
-def next_power_of_2(x):
-    # https://stackoverflow.com/questions/14267555/find-the-smallest-power-of-2-greater-than-n-in-python
-    return 1 if x == 0 else 2**(x - 1).bit_length()
-
-
-def inspect_bytes(btes):
-    print(f'Class: {bytes.__class__}')
-    print(f'Lengths: {len(btes)}')
-    print(f"Strings: {[bin(b).lstrip('0b')for b in btes]}")
-    print(f'Bits: {[bin(b) for b in btes]}')
-
-
-def bloom_inserts(m, n):
-    """ Create BloomFilter with good number of has functions for m bits and n insertions """
-    k = math.ceil(math.log(2) * m / n)
-    print(f"bits={m}, inserts={n} --> hashes={k}")
-    return BloomFilter(m, k)
-
-
-def bloom_fp(epsilon, n):
-    """ Create BloomFilter with false positive rate of epsilon for n inserts """
-    m = -int(math.ceil(math.log(epsilon) * n) / (math.log(2) ** 2))
-    print(f"epsilon={epsilon}, inserts={n} --> bits={m}")
-    return bloom_inserts(next_power_of_2(m), n)
+    def words(self, n):
+        """Generate n words. """
+        return [self.word() for i in range(n)]
 
 
 class Hasher:
 
-    alg = hashlib.sha512
-    size = 512  # number of bits
-
-    def __init__(self, k=8, n=64):
+    def __init__(self, k=8, n=64, alg=sha512()):
         """ Will hash string n times to k bits """
-
+        self.k, self.n, self.alg = k, n, alg
+        self.size = alg.digest_size * 8  # number of bits, eg. 512
         assert k * n <= self.size, \
-            f"{self.size} bit hash function {self.alg} cannot create {n} times {k} bits"
-
-        self.k, self.n = k, n
+            f"{self.size} bit hash function {alg} cannot create {n} times {k} bits"
 
     def bits(self, s):
         """ Hash string to byte array and return as integer """
-
         return int.from_bytes(self.alg(s.encode('utf-8')).digest(), byteorder='big', signed=False)
 
-    def ints(self, s):
+    def ints(self, word):
         """Hashes string and slices results into bit fields returned as list of integers. """
+        hash_bits = self.bits(word)
+        return [int((hash_bits >> int(i * self.k)) & (2 ** self.k - 1)) for i in range(self.n)]
 
-        hash_bits = self.bits(s)
-        return [int((hash_bits >> int(i * self.k)) & (2 ** (self.k+1)) - 1) for i in range(self.n)]
+    def scaled(self, word, ubound):
+        """Rescales entries in self.ints to [s,unbound)"""
+        return [int((2 ** self.k) * i / ubound) for i in self.ints(word)]
 
 
-class BloomFilter:
-    """https://en.wikipedia.org/wiki/Bloom_filter"""
+class Filter:
+    """https://en.wikipedia.org/wiki/Bloom_filter
+       https://wiki.python.org/moin/BitwiseOperators"""
+
+    @staticmethod
+    def create_n(m, n):
+        """ Create BloomFilter with good number of hash functions for m bits and n insertions """
+        k = ceil(log(2) * m / n)
+        return Filter(m, k)
+
+    @staticmethod
+    def create_fp(epsilon, n):
+        """ Create BloomFilter with false positive rate of epsilon for n inserts """
+        m = -int(ceil(log(epsilon) * n) / (log(2) ** 2))
+        return Filter.create_n(m, n)
 
     def __init__(self, m, k):
         """New filter with m bits and k hash functions """
-        assert is_power_of_2(m)
+        self.hasher = Hasher(int(log2(next_power_of_2(m))), k)
+        self.bits, self.m, self.k = 0, m, k
 
-        self.m, self.k = m, k
-        self.hasher = Hasher(int(math.log2(m)), k)
-        self.bits_as_int, self.added = 0, 0
+    def _hashes(self, word):
+        return self.hasher.scaled(word, self.m)
 
-    def add(self, str):
-        # https://wiki.python.org/moin/BitwiseOperators
-        for h in self.hasher.ints(str):
-            self.bits_as_int = self.bits_as_int | (2 ** h)
-            self.added += 1
+    def add(self, word):
+        """ Add word to filter. """
+        for h in self._hashes(word):
+            self.bits = self.bits | (2 ** h)
 
-    def query(self, str):
-        for h in self.hasher.ints(str):
-            if self.bits_as_int & (2 ** h) != 2 ** h:
+    def query(self, word):
+        """Is word contained? """
+        for h in self._hashes(word):
+            if self.bits & (2 ** h) != 2 ** h:
                 return False
         return True
 
-    def stats(self):
-        ones = self.bit_mask().count("1")
+    def approx(self):
+        """Approximate number of items """
+        return -int(self.m * log(1 - self.filled() / self.m) / self.k)
+
+    def bit_str(self):
+        return bin(self.bits).lstrip('0b')
+
+    def filled(self):
+        return self.bit_str().count("1")
+
+    def __repr__(self):
         return {
-            '1s' : ones ,
-            'fill rate': ones / self.m,
-            'added': self.added
+            'm': self.m,
+            'k': self.k,
+            '%': round(self.filled() / self.m * 100, 2),
         }
 
-    def bit_mask(self):
-        return bin(self.bits_as_int).lstrip('0b')
+    def __str__(self):
+        return f'Bloom({self.__repr__()})'
 
-    def inspect(self):
-        return f"funcs={self.k}, bits={self.m}, stats={self.stats()}, mask={self.bit_mask()}"
 
-class TestHashes(unittest.TestCase):
+class TestHashes(TestCase):
 
     @staticmethod
-    def random(k, n):
-        return Hasher(k, n).ints(random_string())
+    def ints(k, n):
+        return Hasher(k, n).ints(Poet().word())
 
-    def test_variants(self):
-        assert len(self.random(8, 64)) == 64
+    def test_size(self):
+        assert len(self.ints(7, 73)) == 73
 
     def test_variance(self):
-        ints = self.random(7, 73)
-        assert len(ints) - len(set(ints)) < 2, f"Element appears more than twice: {ints}"
+        ints = self.ints(8, 64)
+        assert len(set(ints)) / len(ints) >= .9, f"Element appears more than twice: {ints}"
 
-    def test_values(self):
-        for i in self.random(3, 100):
+    def test_values(self,bits=3):
+        for i in self.ints(bits, 100):
             assert isinstance(i, int)
-            assert 0 <= i < 8, f"Out of range: {i}"
+            assert 0 <= i < (2**bits), f"Out of range: {i}"
 
 
-class TestBloom(unittest.TestCase):
+class TestBloom(TestCase):
 
-    def test_single(self):
-        bloom = BloomFilter(8, 64)
-        s = random_string(5)
-        assert not bloom.query(s)
-        bloom.add(s)
-        assert bloom.query(s)
+    def test_create_fp(self, m=958505, n=100000, k=7):
+        print(f"bits={m}, inserts={n} --> hashes={k}")
+        assert Filter.create_fp(m,n) == k
 
-    def test_many(self, n=10000):
-        strings = [random_string(5) for i in range(n)]
-        print(f'Counting unique strings in: {strings} ')
-        bloom = bloom_fp(0.2, n)  # BloomFilter(2 ** 12, 8)
+    def test_create_n(self, fp=0.01, n=100000, m=958505):
+        print(f"epsilon={fp}, inserts={n} --> bits={m}")
+        assert Filter.create_n(fp, n).m == m
 
-        strings_approx = 0
-        for s in strings:
-            if not bloom.query(s):
-                strings_approx += 1
-                bloom.add(s)
+    def test_add(self, poet=Poet(5)):
+        bloom = Filter(8, 64)
+        word = poet.word()
+        assert not bloom.query(word)
+        bloom.add(word)
+        assert bloom.query(word)
 
-        strings_exact = count_exact(strings)
+    def test_approx(self, n=100000, poet=Poet(5), false_positive_rate=.1):
+        """Filter approximation of unique items after n insertions is at most false_positive_rate % off-."""
+        words = poet.words(n)
+        bloom = Filter.create_fp(false_positive_rate, n)
 
-        print(f'{strings_exact} unique strings in {len(strings)}. Approximated: {strings_approx}')
+        for w in words:
+            bloom.add(w)
 
-        assert 0 < strings_approx <= strings_exact
+        print(f'Filter:{bloom}')
 
-        # Process finished with exit code 0
-        # Counting unique strings in: ['rkqeg', 'anqzw', ...
-        # epsilon=0.2, inserts=10000 --> bits=33497
-        # bits=65536, inserts=10000 --> hashes=5
-        # 9996 unique strings in 10000. Approximated: 9989
-        # Ran 1 test in 13.569s
+        words_exact = len(set(words))
+        words_approx = bloom.approx()
+        error = round(abs(words_exact - words_approx) / words_exact * 100, 2)
 
+        print(f'{bloom} approximates {words_approx} of {len(set(words))} words unique ({error}% error).')
 
-class TestRandom(unittest.TestCase):
+        assert error <= false_positive_rate * 100
+
+        # test_approx(self, n=100000, poet=Poet(5), false_positive_rate=.1)
+        # Bloom({'m': 479251, 'k': 4, '%': 58.16}) approximates 104400 of 99574 words unique (4.85% error).
+
+class TestPoet(TestCase):
+
+    def test_char(self, n=100):
+        c = Poet(1, string.ascii_lowercase).word()
+        assert 97 <= ord(c) <= 122
+        return c
 
     def test_length(self):
-        length = ord(random_string(1)[0])
-        rs = random_string(length)
-        print(f"Random string of length {length}: {rs}")
-        assert len(rs) == length
+        length = ord(self.test_char())  # sample single character and take its Unicode code point as length
+        assert len(Poet(length).word()) == length
 
-    def test_diversity(self):
-        n = 1000000  # number of strings
-        ls = 5  # lengths of strings
-        strings = [random_string(ls) for i in range(n)]
-        count = count_exact(strings)
-        print(f"{count} of {n} strings of length {ls} unique.")
-        assert count == len(set(strings))
+    def test_diversity(self, n=100000, k=5, pct=.9):
+        assert len(set(Poet(k).words(n))) / n > pct, f"Less than {pct} of {n} random words of length {k} are unique."
