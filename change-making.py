@@ -4,47 +4,39 @@
 # lets first solve the closely related coin change problem,
 # i.e finding number of ways to change
 
-def _enum_ways(coins, amount):
 
-    # print(f"amount: {amount}")
-    ways = []
+def coin_change(coins, amount):
+
+    assert amount > 0, f"amount not positive: {amount}"
+    assert (len(coins) == len(set(coins))), f"denominations not distinct:{coins}"
     for c in coins:
-        if c == amount:
-            ways.append([c])
-        elif c < amount:
-            # print(f"coin: {c}")
-            ways_less_c = _enum_ways(coins, amount-c)
-            # print(ways_less_c)
-            if ways_less_c:
-                ways.extend(
-                    [w + [c] for w in ways_less_c])
+        assert type(c) is int, "denomination not integer: {c}"
+        assert c > 0, f"denomination not possitive: {c}"
+
+    coins.sort()
+    ways = recurse(coins,amount)
+    assert len(ways) == len(set([tuple(sorted(w, reverse=True)) for w in ways])),\
+        f"{len(ways)} ways including all orders."
 
     return ways
 
-def coin_change(coins, amount):
-    coins.sort()
-    ways = _enum_sorted(coins,amount)
-    print(f"{len(ways)} ways including all orders.")
-    ## remove duplicates
-    return set([tuple(sorted(w, reverse=True)) for w in ways])
-
-def _enum_sorted(coins, amount):
+def recurse(coins, amount):
     """ Assume coins are sorted increasing order and unique """
     ways = []
-    print(f"coins={coins}, amount={amount}")
+    # print(f"coins={coins}, amount={amount}")
     largest = coins[-1]
     if largest <= amount:
         # pick largest
         if largest == amount:
             ways.append([largest])
-        ways.extend([w + [largest] for w in  _enum_sorted(coins,amount-largest)])
+        ways.extend([w + [largest] for w in  recurse(coins,amount-largest)])
     # drop largest
     if len(coins) > 1:
-        ways.extend(_enum_sorted(coins[:-1],amount))
+        ways.extend(recurse(coins[:-1],amount))
     return ways
 
 import random
-ways = coin_change([1,2,4,8], 15)
+ways = coin_change([1,2,4,8,16], 32)
 print(f"{len(ways)} ways. Sample: {random.sample(list(ways),10)}")
 
 def test():
